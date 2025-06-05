@@ -1,154 +1,27 @@
 #include <windows.h>
-#include <psapi.h>
-#include <shlobj.h>
-#include <fstream>
-#include <string>
-#include <sstream>
 #include <commctrl.h>
 #include <tchar.h>
-#include <pdh.h>
-#include <pdhmsg.h>
-#include <winioctl.h>
+#include <string>
+#include <sstream>
 
 #pragma comment(lib, "comctl32.lib")
-#pragma comment(lib, "pdh.lib")
 
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam);
+using namespace std;
 
-void ExportHardwareInfo();
-void UpdateMemoryUsage(HWND hwnd);
-std::wstring GetCPUName();
-std::wstring GetGPUName();
-std::wstring GetDiskInfo();
-std::wstring GetCPUSpeedMHz();
+#define ID_TABCTRL 1001
+#define ID_BENCHMARK_BUTTON 1002
+#define TIMER_ID 2001
 
-MEMORYSTATUSEX memStatus;
+HWND hTabCtrl, hBenchmarkButton;
+HWND hLabels[5];
 HWND hProgressBar;
-HWND hMemInfoLabel;  // Novo: label de uso de memória
-UINT_PTR timerId = 1;
+MEMORYSTATUSEX memStatus;
 
-int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR, int nCmdShow) {
-    INITCOMMONCONTROLSEX icex;
-    icex.dwSize = sizeof(icex);
-    icex.dwICC = ICC_PROGRESS_CLASS;
-    InitCommonControlsEx(&icex);
-
-    const wchar_t CLASS_NAME[] = L"HardwareInfoWindowClass";
-
-    WNDCLASS wc = {};
-    wc.lpfnWndProc = WindowProc;
-    wc.hInstance = hInstance;
-    wc.lpszClassName = CLASS_NAME;
-
-    RegisterClass(&wc);
-
-    HWND hwnd = CreateWindowEx(
-        0,
-        CLASS_NAME,
-        L"Monitoramento de Hardware",
-        WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 550, 400,
-        nullptr, nullptr, hInstance, nullptr
-    );
-
-    if (hwnd == nullptr) return 0;
-
-    ShowWindow(hwnd, nCmdShow);
-    UpdateWindow(hwnd);
-
-    SetTimer(hwnd, timerId, 1000, NULL);
-
-    MSG msg = {};
-    while (GetMessage(&msg, nullptr, 0, 0)) {
-        TranslateMessage(&msg);
-        DispatchMessage(&msg);
-    }
-
-    return 0;
-}
-
-LRESULT CALLBACK WindowProc(HWND hwnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    switch (uMsg) {
-    case WM_CREATE: {
-        CreateWindow(L"STATIC", L"Uso de Memória (em tempo real):",
-            WS_VISIBLE | WS_CHILD,
-            20, 20, 250, 20,
-            hwnd, nullptr, nullptr, nullptr);
-
-        hProgressBar = CreateWindowEx(0, PROGRESS_CLASS, nullptr,
-            WS_CHILD | WS_VISIBLE | PBS_SMOOTH,
-            20, 50, 500, 30,
-            hwnd, nullptr, nullptr, nullptr);
-
-        hMemInfoLabel = CreateWindow(L"STATIC", L"",
-            WS_VISIBLE | WS_CHILD,
-            20, 85, 500, 20,
-            hwnd, nullptr, nullptr, nullptr);
-
-        CreateWindow(L"BUTTON", L"Exportar Informações para .txt",
-            WS_VISIBLE | WS_CHILD | BS_PUSHBUTTON,
-            20, 120, 250, 30,
-            hwnd, (HMENU)1, nullptr, nullptr);
-        break;
-    }
-    case WM_COMMAND:
-        if (LOWORD(wParam) == 1) {
-            ExportHardwareInfo();
-        }
-        break;
-    case WM_TIMER:
-        if (wParam == timerId) {
-            UpdateMemoryUsage(hwnd);
-        }
-        break;
-    case WM_DESTROY:
-        KillTimer(hwnd, timerId);
-        PostQuitMessage(0);
-        break;
-    }
-    return DefWindowProc(hwnd, uMsg, wParam, lParam);
-}
-
-void UpdateMemoryUsage(HWND hwnd) {
-    memStatus.dwLength = sizeof(memStatus);
-    GlobalMemoryStatusEx(&memStatus);
-
-    int usage = static_cast<int>(memStatus.dwMemoryLoad);
-    SendMessage(hProgressBar, PBM_SETPOS, usage, 0);
-
-    DWORDLONG totalMB = memStatus.ullTotalPhys / (1024 * 1024);
-    DWORDLONG usedMB = (memStatus.ullTotalPhys - memStatus.ullAvailPhys) / (1024 * 1024);
-
-    std::wstringstream ss;
-    ss << L"Memória Total: " << totalMB << L" MB - Utilizada: " << usedMB << L" MB";
-    SetWindowText(hMemInfoLabel, ss.str().c_str());
-}
-
-void ExportHardwareInfo() {
-    memStatus.dwLength = sizeof(memStatus);
-    GlobalMemoryStatusEx(&memStatus);
-
-    std::wofstream file("hardware_info.txt", std::ios::out | std::ios::binary);
-
-    // Escreve BOM UTF-8 para suportar acentos corretamente
-    file << L"\xFEFF";
-
-    file << L"=== INFORMAÇÕES DE HARDWARE ===\n";
-    file << L"Processador: " << GetCPUName() << L"\n";
-    file << L"Frequência do CPU: " << GetCPUSpeedMHz() << L" MHz\n";
-    file << L"GPU: " << GetGPUName() << L"\n";
-    file << GetDiskInfo();
-    file << L"\n=== MEMÓRIA ===\n";
-    file << L"Memória Total: " << memStatus.ullTotalPhys / (1024 * 1024) << L" MB\n";
-    file << L"Memória Disponível: " << memStatus.ullAvailPhys / (1024 * 1024) << L" MB\n";
-    file << L"Uso de Memória: " << memStatus.dwMemoryLoad << L"%\n";
-
-    file.close();
-}
+// Funções para obter informações
 
 std::wstring GetCPUName() {
     HKEY hKey;
-    wchar_t cpuName[256];
+    wchar_t cpuName[256] = L"Desconhecido";
     DWORD size = sizeof(cpuName);
     if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
         L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
@@ -168,28 +41,165 @@ std::wstring GetGPUName() {
     return L"Desconhecido";
 }
 
-std::wstring GetDiskInfo() {
-    ULARGE_INTEGER freeBytesAvailable, totalBytes, totalFreeBytes;
-    if (GetDiskFreeSpaceEx(L"C:\\", &freeBytesAvailable, &totalBytes, &totalFreeBytes)) {
-        std::wstringstream ss;
-        ss << L"\n=== DISCO C: ===\n";
-        ss << L"Espaço Total: " << totalBytes.QuadPart / (1024 * 1024 * 1024) << L" GB\n";
-        ss << L"Espaço Livre: " << totalFreeBytes.QuadPart / (1024 * 1024 * 1024) << L" GB\n";
-        return ss.str();
-    }
-    return L"Informações de disco indisponíveis\n";
+void UpdateMemoryProgress() {
+    memStatus.dwLength = sizeof(memStatus);
+    GlobalMemoryStatusEx(&memStatus);
+
+    int usage = static_cast<int>(memStatus.dwMemoryLoad);
+    SendMessage(hProgressBar, PBM_SETPOS, usage, 0);
+
+    wstringstream ssUsed, ssTotal;
+    ssUsed << L"Usada: " << (memStatus.ullTotalPhys - memStatus.ullAvailPhys) / (1024 * 1024) << L" MB";
+    ssTotal << L"Total: " << memStatus.ullTotalPhys / (1024 * 1024) << L" MB";
+
+    SetWindowText(hLabels[3], ssUsed.str().c_str());
+    SetWindowText(hLabels[4], ssTotal.str().c_str());
 }
 
-std::wstring GetCPUSpeedMHz() {
-    HKEY hKey;
-    DWORD speed = 0;
-    DWORD size = sizeof(speed);
-    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
-        L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        RegQueryValueEx(hKey, L"~MHz", nullptr, nullptr, (LPBYTE)&speed, &size);
-        RegCloseKey(hKey);
+void ShowBenchmarkResult(HWND hwnd) {
+    LARGE_INTEGER frequency, start, end;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&start);
+
+    const int size = 100000000;
+    int* arr = new int[size];
+    for (int i = 0; i < size; ++i) arr[i] = i;
+
+    long long sum = 0;
+    for (int i = 0; i < size; ++i) sum += arr[i];
+
+    QueryPerformanceCounter(&end);
+    delete[] arr;
+
+    double elapsed = static_cast<double>(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+    wstringstream ss;
+    ss << L"Tempo de acesso a memória: " << elapsed << L" segundos.";
+
+    MessageBox(hwnd, ss.str().c_str(), L"Benchmark da Memória RAM", MB_OK | MB_ICONINFORMATION);
+}
+
+void ShowOnlyTabContents(int tabIndex) {
+    // Esconder tudo primeiro
+    for (int i = 0; i < 5; ++i) {
+        ShowWindow(hLabels[i], SW_HIDE);
     }
-    std::wstringstream ss;
-    ss << speed;
-    return ss.str();
+    ShowWindow(hProgressBar, SW_HIDE);
+    ShowWindow(hBenchmarkButton, SW_HIDE);
+
+    switch (tabIndex) {
+    case 0: // Sistema
+        ShowWindow(hLabels[0], SW_SHOW);
+        break;
+    case 1: // CPU
+        ShowWindow(hLabels[1], SW_SHOW);
+        break;
+    case 2: // GPU
+        ShowWindow(hLabels[2], SW_SHOW);
+        break;
+    case 3: // Memória
+        ShowWindow(hLabels[3], SW_SHOW);
+        ShowWindow(hLabels[4], SW_SHOW);
+        ShowWindow(hProgressBar, SW_SHOW);
+        ShowWindow(hBenchmarkButton, SW_SHOW);
+        break;
+    }
+}
+
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+    case WM_CREATE: {
+        INITCOMMONCONTROLSEX icex = { sizeof(INITCOMMONCONTROLSEX), ICC_TAB_CLASSES | ICC_PROGRESS_CLASS };
+        InitCommonControlsEx(&icex);
+
+        hTabCtrl = CreateWindowEx(0, WC_TABCONTROL, L"",
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+            10, 10, 520, 320,
+            hwnd, (HMENU)ID_TABCTRL, GetModuleHandle(NULL), NULL);
+
+        TCITEM tie = { TCIF_TEXT };
+        tie.pszText = const_cast<LPWSTR>(L"Sistema"); TabCtrl_InsertItem(hTabCtrl, 0, &tie);
+        tie.pszText = const_cast<LPWSTR>(L"CPU");     TabCtrl_InsertItem(hTabCtrl, 1, &tie);
+        tie.pszText = const_cast<LPWSTR>(L"GPU");     TabCtrl_InsertItem(hTabCtrl, 2, &tie);
+        tie.pszText = const_cast<LPWSTR>(L"Memória"); TabCtrl_InsertItem(hTabCtrl, 3, &tie);
+        // Aba Disco removida
+
+        // Criar controles, mas ocultos inicialmente
+        wchar_t* envValue = nullptr;
+        size_t len = 0;
+        _wdupenv_s(&envValue, &len, L"OS");
+        wstring sistemaTexto = envValue ? (L"Windows: " + wstring(envValue)) : L"Windows: ";
+        free(envValue);
+
+        hLabels[0] = CreateWindow(L"STATIC", sistemaTexto.c_str(), WS_CHILD | WS_VISIBLE, 30, 50, 480, 30, hwnd, NULL, NULL, NULL);
+        hLabels[1] = CreateWindow(L"STATIC", GetCPUName().c_str(), WS_CHILD | WS_VISIBLE, 30, 50, 480, 30, hwnd, NULL, NULL, NULL);
+        hLabels[2] = CreateWindow(L"STATIC", GetGPUName().c_str(), WS_CHILD | WS_VISIBLE, 30, 50, 480, 30, hwnd, NULL, NULL, NULL);
+
+        hProgressBar = CreateWindowEx(0, PROGRESS_CLASS, NULL, WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 30, 90, 400, 30, hwnd, NULL, NULL, NULL);
+        hLabels[3] = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 30, 130, 200, 20, hwnd, NULL, NULL, NULL);
+        hLabels[4] = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 240, 130, 200, 20, hwnd, NULL, NULL, NULL);
+
+        hBenchmarkButton = CreateWindow(L"BUTTON", L"Benchmark da RAM", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 30, 180, 200, 30, hwnd, (HMENU)ID_BENCHMARK_BUTTON, NULL, NULL);
+
+        // Inicialmente mostrar só a aba Sistema
+        ShowOnlyTabContents(0);
+
+        SetTimer(hwnd, TIMER_ID, 1000, NULL);
+        break;
+    }
+    case WM_COMMAND:
+        if (LOWORD(wParam) == ID_BENCHMARK_BUTTON) {
+            ShowBenchmarkResult(hwnd);
+        }
+        break;
+    case WM_TIMER:
+        if (wParam == TIMER_ID) {
+            UpdateMemoryProgress();
+        }
+        break;
+    case WM_NOTIFY:
+        if (((LPNMHDR)lParam)->hwndFrom == hTabCtrl && ((LPNMHDR)lParam)->code == TCN_SELCHANGE) {
+            int selectedTab = TabCtrl_GetCurSel(hTabCtrl);
+            ShowOnlyTabContents(selectedTab);
+        }
+        break;
+    case WM_DESTROY:
+        KillTimer(hwnd, TIMER_ID);
+        PostQuitMessage(0);
+        break;
+    default:
+        return DefWindowProc(hwnd, msg, wParam, lParam);
+    }
+    return 0;
+}
+
+int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
+    const wchar_t CLASS_NAME[] = L"HardwareMonitorClass";
+
+    WNDCLASS wc = {};
+    wc.lpfnWndProc = WindowProc;
+    wc.hInstance = hInstance;
+    wc.lpszClassName = CLASS_NAME;
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+
+    RegisterClass(&wc);
+
+    HWND hwnd = CreateWindowEx(
+        0, CLASS_NAME, L"Monitor de Hardware",
+        WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),  // Janela não redimensionável
+        CW_USEDEFAULT, CW_USEDEFAULT, 550, 400,
+        nullptr, nullptr, hInstance, nullptr
+    );
+
+    if (!hwnd) return 0;
+
+    ShowWindow(hwnd, nCmdShow);
+    UpdateWindow(hwnd);
+
+    MSG msg = {};
+    while (GetMessage(&msg, nullptr, 0, 0)) {
+        TranslateMessage(&msg);
+        DispatchMessage(&msg);
+    }
+
+    return 0;
 }
