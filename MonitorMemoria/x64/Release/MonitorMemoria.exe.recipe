@@ -2,7 +2,7 @@
 <Project>
   <ProjectOutputs>
     <ProjectOutput>
-      <FullPath>C:\_Desenvolvimento\PROJETOS\MonitorMemoriaVersaoFinal\x64\Release\MonitorMemoria.exe</FullPath>
+      <FullPath>C:\_Desenvolvimento\PROJETOS\MonitorMemoria\x64\Release\MonitorMemoria.exe</FullPath>
     </ProjectOutput>
   </ProjectOutputs>
   <ContentFiles />
