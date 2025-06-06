@@ -1,2 +1,68 @@
 ﻿  MonitorMemoria.cpp
-  MonitorMemoria.vcxproj -> C:\_Desenvolvimento\PROJETOS\MonitorMemoria - Copia (2)\x64\Debug\MonitorMemoria.exe
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xutility(4813,18): warning C4244: '=': conversão de 'const wchar_t' para 'char', possível perda de dados
+  (compilando o arquivo fonte 'MonitorMemoria.cpp')
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xutility(4813,18):
+      o contexto de instanciação do modelo (o mais antigo primeiro) é
+          C:\_Desenvolvimento\PROJETOS\MonitorMemoria - Copia (3)\MonitorMemoria\MonitorMemoria.cpp(56,56):
+          consulte a referência à instanciação 'std::basic_string<char,std::char_traits<char>,std::allocator<char>>::basic_string<std::_String_const_iterator<std::_String_val<std::_Simple_types<_Elem>>>,0>(_Iter,_Iter,const _Alloc &)' do modelo que está sendo compilada
+          with
+          [
+              _Elem=wchar_t,
+              _Iter=std::_String_const_iterator<std::_String_val<std::_Simple_types<wchar_t>>>,
+              _Alloc=std::allocator<char>
+          ]
+              C:\_Desenvolvimento\PROJETOS\MonitorMemoria - Copia (3)\MonitorMemoria\MonitorMemoria.cpp(56,49):
+              veja a primeira referência a 'std::basic_string<char,std::char_traits<char>,std::allocator<char>>::basic_string' em 'GetWMIInfo'
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xstring(812,17):
+          consulte a referência à instanciação 'void std::basic_string<char,std::char_traits<char>,std::allocator<char>>::_Construct_from_iter<const wchar_t*,const wchar_t*,_Size_type>(_Iter,const _Sent,_Size)' do modelo que está sendo compilada
+          with
+          [
+              _Size_type=std::+::_Size_type,
+              _Iter=const wchar_t *,
+              _Sent=const wchar_t *,
+              _Size=std::+::_Size_type
+          ]
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xstring(968,18):
+          consulte a referência à instanciação '_OutIt *std::_Copy_n_unchecked4<const wchar_t*,_Size,char*>(_InIt,_SizeTy,_OutIt)' do modelo que está sendo compilada
+          with
+          [
+              _OutIt=char *,
+              _Size=std::+::_Size_type,
+              _InIt=const wchar_t *,
+              _SizeTy=std::+::_Size_type
+          ]
+  
+C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xutility(4813,18): warning C4244: '=': conversão de 'wchar_t' para 'char', possível perda de dados
+  (compilando o arquivo fonte 'MonitorMemoria.cpp')
+      C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xutility(4813,18):
+      o contexto de instanciação do modelo (o mais antigo primeiro) é
+          C:\_Desenvolvimento\PROJETOS\MonitorMemoria - Copia (3)\MonitorMemoria\MonitorMemoria.cpp(56,90):
+          consulte a referência à instanciação 'std::basic_string<char,std::char_traits<char>,std::allocator<char>>::basic_string<std::_String_iterator<std::_String_val<std::_Simple_types<_Elem>>>,0>(_Iter,_Iter,const _Alloc &)' do modelo que está sendo compilada
+          with
+          [
+              _Elem=wchar_t,
+              _Iter=std::_String_iterator<std::_String_val<std::_Simple_types<wchar_t>>>,
+              _Alloc=std::allocator<char>
+          ]
+              C:\_Desenvolvimento\PROJETOS\MonitorMemoria - Copia (3)\MonitorMemoria\MonitorMemoria.cpp(56,49):
+              veja a primeira referência a 'std::basic_string<char,std::char_traits<char>,std::allocator<char>>::basic_string' em 'GetWMIInfo'
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xstring(812,17):
+          consulte a referência à instanciação 'void std::basic_string<char,std::char_traits<char>,std::allocator<char>>::_Construct_from_iter<wchar_t*,wchar_t*,_Size_type>(_Iter,const _Sent,_Size)' do modelo que está sendo compilada
+          with
+          [
+              _Size_type=std::+::_Size_type,
+              _Iter=wchar_t *,
+              _Sent=wchar_t *,
+              _Size=std::+::_Size_type
+          ]
+          C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Tools\MSVC\14.44.35207\include\xstring(968,18):
+          consulte a referência à instanciação '_OutIt *std::_Copy_n_unchecked4<wchar_t*,_Size,char*>(_InIt,_SizeTy,_OutIt)' do modelo que está sendo compilada
+          with
+          [
+              _OutIt=char *,
+              _Size=std::+::_Size_type,
+              _InIt=wchar_t *,
+              _SizeTy=std::+::_Size_type
+          ]
+  
+  MonitorMemoria.vcxproj -> C:\_Desenvolvimento\PROJETOS\MonitorMemoria - Copia (3)\x64\Debug\MonitorMemoria.exe
