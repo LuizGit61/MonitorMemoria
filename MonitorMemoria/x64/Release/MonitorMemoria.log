@@ -1,0 +1,6 @@
+﻿  MonitorMemoria.cpp
+  Gerando código
+  Previous IPDB and IOBJ mismatch, fall back to full compilation.
+  All 479 functions were compiled because no usable IPDB/IOBJ from previous compilation was found.
+  Finalizada a geração de código
+  MonitorMemoria.vcxproj -> C:\_Desenvolvimento\PROJETOS\MonitorMemoriaVersaoFinal\x64\Release\MonitorMemoria.exe

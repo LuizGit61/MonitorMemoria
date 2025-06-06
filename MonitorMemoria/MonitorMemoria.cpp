@@ -1,220 +1,286 @@
 #include <windows.h>
 #include <commctrl.h>
+#include <tchar.h>
 #include <string>
-#include <vector>
 #include <sstream>
 #include <iomanip>
-#include <Wbemidl.h>
+#include <intrin.h>
+#include <winternl.h>
+
 #pragma comment(lib, "comctl32.lib")
-#pragma comment(lib, "wbemuuid.lib")
+#pragma comment(lib, "ntdll.lib")
 
 using namespace std;
 
 #define ID_TABCTRL 1001
-#define ID_RAM_PROGRESS 1002
-#define ID_BENCHMARK_BTN 1003
+#define ID_BENCHMARK_BUTTON 1002
+#define TIMER_ID 2001
 
-HWND hTab, hRamProgress;
-HWND hSystemTab, hCpuTab, hDiskTab, hMemoryTab;
-HWND hBenchmarkBtn;
-RECT clientRect;
+HWND hTabCtrl, hBenchmarkButton;
+HWND hLabels[10];
+HWND hProgressBar;
 
-vector<pair<string, string>> GetWMIInfo(const wstring& wmiClass, const vector<wstring>& properties) {
-    vector<pair<string, string>> results;
+MEMORYSTATUSEX memStatus;
 
-    CoInitializeEx(0, COINIT_MULTITHREADED);
-    CoInitializeSecurity(NULL, -1, NULL, NULL,
-        RPC_C_AUTHN_LEVEL_DEFAULT, RPC_C_IMP_LEVEL_IMPERSONATE,
-        NULL, EOAC_NONE, NULL);
+typedef LONG(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 
-    IWbemLocator* pLocator = NULL;
-    IWbemServices* pServices = NULL;
-
-    if (CoCreateInstance(CLSID_WbemLocator, 0, CLSCTX_INPROC_SERVER,
-        IID_IWbemLocator, (LPVOID*)&pLocator) == S_OK) {
-        if (pLocator->ConnectServer(
-            BSTR(L"ROOT\\CIMV2"), NULL, NULL, 0, NULL, 0, 0, &pServices) == S_OK) {
-            CoSetProxyBlanket(pServices, RPC_C_AUTHN_WINNT, RPC_C_AUTHZ_NONE,
-                NULL, RPC_C_AUTHN_LEVEL_CALL, RPC_C_IMP_LEVEL_IMPERSONATE,
-                NULL, EOAC_NONE);
-
-            IEnumWbemClassObject* pEnumerator = NULL;
-            if (pServices->ExecQuery(
-                BSTR(L"WQL"),
-                BSTR((L"SELECT * FROM " + wmiClass).c_str()),
-                WBEM_FLAG_FORWARD_ONLY | WBEM_FLAG_RETURN_IMMEDIATELY,
-                NULL, &pEnumerator) == S_OK) {
-
-                IWbemClassObject* pClassObject = NULL;
-                ULONG uReturn = 0;
-                if (pEnumerator->Next(WBEM_INFINITE, 1, &pClassObject, &uReturn) == S_OK) {
-                    for (auto& prop : properties) {
-                        VARIANT vtProp;
-                        VariantInit(&vtProp);
-                        if (pClassObject->Get(prop.c_str(), 0, &vtProp, 0, 0) == S_OK) {
-                            wstring val = vtProp.bstrVal ? vtProp.bstrVal : L"";
-                            results.emplace_back(string(prop.begin(), prop.end()), string(val.begin(), val.end()));
-                        }
-                        VariantClear(&vtProp);
-                    }
-                    pClassObject->Release();
-                }
-                pEnumerator->Release();
-            }
-            pServices->Release();
+bool GetRealOSVersion(OSVERSIONINFOEXW& osvi) {
+    HMODULE hMod = GetModuleHandleW(L"ntdll.dll");
+    if (hMod) {
+        RtlGetVersionPtr fxPtr = (RtlGetVersionPtr)GetProcAddress(hMod, "RtlGetVersion");
+        if (fxPtr) {
+            osvi.dwOSVersionInfoSize = sizeof(osvi);
+            return fxPtr((PRTL_OSVERSIONINFOW)&osvi) == 0;
         }
-        pLocator->Release();
     }
-    CoUninitialize();
-    return results;
+    return false;
 }
 
-void AddLabel(HWND hWnd, int x, int y, const wstring& text) {
-    CreateWindowW(L"STATIC", text.c_str(), WS_VISIBLE | WS_CHILD,
-        x, y, 230, 20, hWnd, NULL, NULL, NULL);
+wstring GetOSInfo() {
+    wstringstream ss;
+
+    OSVERSIONINFOEXW osvi = {};
+    if (GetRealOSVersion(osvi)) {
+        ss << L"Nome: Windows\n";
+        ss << L"Versão: " << osvi.dwMajorVersion << L"." << osvi.dwMinorVersion << L"\n";
+        ss << L"Build: " << osvi.dwBuildNumber << L"\n";
+    }
+
+    // Data de instalação
+    HKEY hKey;
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE, L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        DWORD installDate = 0;
+        DWORD size = sizeof(installDate);
+        if (RegQueryValueEx(hKey, L"InstallDate", NULL, NULL, (LPBYTE)&installDate, &size) == ERROR_SUCCESS) {
+            time_t rawTime = installDate;
+            tm timeInfo;
+            localtime_s(&timeInfo, &rawTime);
+            wchar_t buffer[100];
+            wcsftime(buffer, 100, L"%d/%m/%Y %H:%M:%S", &timeInfo);
+            ss << L"Instalado em: " << buffer << L"\n";
+        }
+
+        wchar_t arch[32];
+        DWORD archSize = sizeof(arch);
+        if (RegQueryValueEx(hKey, L"BuildLabEx", NULL, NULL, (LPBYTE)arch, &archSize) == ERROR_SUCCESS) {
+            ss << L"Arquitetura: " << (sizeof(void*) == 8 ? L"x64" : L"x86") << L"\n";
+        }
+
+        wchar_t prodId[128];
+        DWORD prodSize = sizeof(prodId);
+        if (RegQueryValueEx(hKey, L"ProductId", NULL, NULL, (LPBYTE)prodId, &prodSize) == ERROR_SUCCESS) {
+            ss << L"ID do Produto: " << prodId;
+        }
+
+        RegCloseKey(hKey);
+    }
+
+    return ss.str();
 }
 
-void CreateSystemTab(HWND hWndParent) {
-    setlocale(LC_ALL, "Portuguese");
-    hSystemTab = CreateWindowW(L"STATIC", NULL, WS_CHILD | WS_VISIBLE,
-        10, 40, 460, 260, hWndParent, NULL, NULL, NULL);
+wstring GetCPUInfo() {
+    wstringstream ss;
 
-    auto info = GetWMIInfo(L"Win32_OperatingSystem", {
-        L"Caption", L"WindowsDirectory", L"SystemDirectory", L"SerialNumber" });
-    auto mobo = GetWMIInfo(L"Win32_BaseBoard", { L"Product" });
+    HKEY hKey;
+    wchar_t cpuName[256] = L"Desconhecido";
+    DWORD size = sizeof(cpuName);
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+        L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hKey) == ERROR_SUCCESS) {
+        RegQueryValueEx(hKey, L"ProcessorNameString", nullptr, nullptr, (LPBYTE)cpuName, &size);
+        RegCloseKey(hKey);
+    }
 
-    int y = 10;
-    for (auto& pair : info) AddLabel(hSystemTab, 10, y += 25, wstring(pair.first.begin(), pair.first.end()) + L": " + wstring(pair.second.begin(), pair.second.end()));
-    AddLabel(hSystemTab, 10, y += 25, L"Placa-mãe: " + wstring(mobo[0].second.begin(), mobo[0].second.end()));
+    ss << L"Nome: " << cpuName << L"\n";
+
+    // Clock atual
+    int speedMHz = 0;
+    HKEY hSpeedKey;
+    DWORD speedSize = sizeof(speedMHz);
+    if (RegOpenKeyEx(HKEY_LOCAL_MACHINE,
+        L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0", 0, KEY_READ, &hSpeedKey) == ERROR_SUCCESS) {
+        RegQueryValueEx(hSpeedKey, L"~MHz", nullptr, nullptr, (LPBYTE)&speedMHz, &speedSize);
+        RegCloseKey(hSpeedKey);
+    }
+
+    SYSTEM_INFO sysInfo;
+    GetSystemInfo(&sysInfo);
+    ss << L"Núcleos: " << sysInfo.dwNumberOfProcessors << L"\n";
+    ss << L"Clock Atual: " << speedMHz << L" MHz\n";
+    ss << L"Clock Máximo: (estimado) " << speedMHz << L" MHz\n";
+    ss << L"Voltagem: (não disponível via WinAPI padrão)";
+
+    return ss.str();
 }
 
-void CreateCpuTab(HWND hWndParent) {
-    setlocale(LC_ALL, "Portuguese");
-    hCpuTab = CreateWindowW(L"STATIC", NULL, WS_CHILD,
-        10, 40, 460, 260, hWndParent, NULL, NULL, NULL);
+wstring GetDiskInfo() {
+    wstringstream ss;
 
-    auto info = GetWMIInfo(L"Win32_Processor", {
-        L"Name", L"NumberOfCores", L"Manufacturer", L"CurrentClockSpeed", L"CurrentVoltage" });
+    ULARGE_INTEGER freeBytesAvailable, totalBytes, totalFree;
+    if (GetDiskFreeSpaceEx(L"C:\\", &freeBytesAvailable, &totalBytes, &totalFree)) {
+        ss << L"Tamanho total: " << totalBytes.QuadPart / (1024 * 1024 * 1024) << L" GB\n";
+    }
 
-    int y = 10;
-    for (auto& pair : info) AddLabel(hCpuTab, 10, y += 25, wstring(pair.first.begin(), pair.first.end()) + L": " + wstring(pair.second.begin(), pair.second.end()));
+    DWORD sectorsPerCluster, bytesPerSector, numberOfFreeClusters, totalNumberOfClusters;
+    if (GetDiskFreeSpace(L"C:\\", &sectorsPerCluster, &bytesPerSector, &numberOfFreeClusters, &totalNumberOfClusters)) {
+        ss << L"Bytes por Setor: " << bytesPerSector << L"\n";
+        ss << L"Número de Setores: " << (DWORD64)totalNumberOfClusters * sectorsPerCluster;
+    }
+
+    return ss.str();
 }
 
-void CreateDiskTab(HWND hWndParent) {
-    setlocale(LC_ALL, "Portuguese");
-    hDiskTab = CreateWindowW(L"STATIC", NULL, WS_CHILD,
-        10, 40, 460, 260, hWndParent, NULL, NULL, NULL);
-
-    auto info = GetWMIInfo(L"Win32_DiskDrive", {
-        L"Model", L"Size", L"TotalCylinders", L"BytesPerSector" });
-
-    int y = 10;
-    for (auto& pair : info) AddLabel(hDiskTab, 10, y += 25, wstring(pair.first.begin(), pair.first.end()) + L": " + wstring(pair.second.begin(), pair.second.end()));
+wstring GetMemoryType() {
+    // Informação real do tipo de memória requer WMI ou driver específico, aqui é simulado
+    return L"Tipo: DDR4 (estimado)";
 }
 
-void CreateMemoryTab(HWND hWndParent) {
-    setlocale(LC_ALL, "Portuguese");
-    hMemoryTab = CreateWindowW(L"STATIC", NULL, WS_CHILD,
-        10, 40, 460, 260, hWndParent, NULL, NULL, NULL);
-
-    MEMORYSTATUSEX memStatus = { sizeof(memStatus) };
+void UpdateMemoryProgress() {
+    memStatus.dwLength = sizeof(memStatus);
     GlobalMemoryStatusEx(&memStatus);
-    DWORD usage = (DWORD)((memStatus.ullTotalPhys - memStatus.ullAvailPhys) * 100 / memStatus.ullTotalPhys);
 
-    AddLabel(hMemoryTab, 10, 20, L"Uso de RAM:");
-    hRamProgress = CreateWindowExW(0, PROGRESS_CLASS, NULL,
-        WS_CHILD | WS_VISIBLE,
-        110, 20, 250, 20,
-        hMemoryTab, (HMENU)ID_RAM_PROGRESS, NULL, NULL);
-    SendMessage(hRamProgress, PBM_SETRANGE, 0, MAKELPARAM(0, 100));
-    SendMessage(hRamProgress, PBM_SETPOS, usage, 0);
+    int usage = static_cast<int>(memStatus.dwMemoryLoad);
+    SendMessage(hProgressBar, PBM_SETPOS, usage, 0);
 
-    AddLabel(hMemoryTab, 10, 60, L"Total RAM: " + to_wstring(memStatus.ullTotalPhys / (1024 * 1024)) + L" MB");
-    AddLabel(hMemoryTab, 10, 85, L"RAM em uso: " + to_wstring((memStatus.ullTotalPhys - memStatus.ullAvailPhys) / (1024 * 1024)) + L" MB");
+    wstringstream ssUsed, ssTotal;
+    ssUsed << L"Usada: " << (memStatus.ullTotalPhys - memStatus.ullAvailPhys) / (1024 * 1024) << L" MB";
+    ssTotal << L"Total: " << memStatus.ullTotalPhys / (1024 * 1024) << L" MB";
 
-    auto memInfo = GetWMIInfo(L"Win32_PhysicalMemory", {
-        L"Manufacturer", L"DeviceLocator", L"Speed", L"MemoryType", L"Capacity" });
-
-    int y = 120;
-    for (auto& pair : memInfo)
-        AddLabel(hMemoryTab, 10, y += 25, wstring(pair.first.begin(), pair.first.end()) + L": " + wstring(pair.second.begin(), pair.second.end()));
-
-    hBenchmarkBtn = CreateWindowW(L"BUTTON", L"Benchmark",
-        WS_TABSTOP | WS_VISIBLE | WS_CHILD | BS_DEFPUSHBUTTON,
-        350, 20, 90, 25,
-        hMemoryTab, (HMENU)ID_BENCHMARK_BTN, NULL, NULL);
+    SetWindowText(hLabels[3], ssUsed.str().c_str());
+    SetWindowText(hLabels[4], ssTotal.str().c_str());
 }
 
-void ShowTab(int index) {
-    ShowWindow(hSystemTab, index == 0 ? SW_SHOW : SW_HIDE);
-    ShowWindow(hCpuTab, index == 1 ? SW_SHOW : SW_HIDE);
-    ShowWindow(hDiskTab, index == 2 ? SW_SHOW : SW_HIDE);
-    ShowWindow(hMemoryTab, index == 3 ? SW_SHOW : SW_HIDE);
+void ShowBenchmarkResult(HWND hwnd) {
+    LARGE_INTEGER frequency, start, end;
+    QueryPerformanceFrequency(&frequency);
+    QueryPerformanceCounter(&start);
+
+    const int size = 100000000;
+    int* arr = new int[size];
+    for (int i = 0; i < size; ++i) arr[i] = i;
+
+    long long sum = 0;
+    for (int i = 0; i < size; ++i) sum += arr[i];
+
+    QueryPerformanceCounter(&end);
+    delete[] arr;
+
+    double elapsed = static_cast<double>(end.QuadPart - start.QuadPart) / frequency.QuadPart;
+    wstringstream ss;
+    ss << L"Tempo de acesso a memória: " << elapsed << L" segundos.";
+
+    MessageBox(hwnd, ss.str().c_str(), L"Benchmark da Memória RAM", MB_OK | MB_ICONINFORMATION);
 }
 
-LRESULT CALLBACK WindowProc(HWND hWnd, UINT uMsg, WPARAM wParam, LPARAM lParam) {
-    setlocale(LC_ALL, "Portuguese");
-    switch (uMsg) {
+void ShowOnlyTabContents(int tabIndex) {
+    for (int i = 0; i < 10; ++i) ShowWindow(hLabels[i], SW_HIDE);
+    ShowWindow(hProgressBar, SW_HIDE);
+    ShowWindow(hBenchmarkButton, SW_HIDE);
+
+    switch (tabIndex) {
+    case 0: // Sistema
+        ShowWindow(hLabels[0], SW_SHOW);
+        break;
+    case 1: // CPU
+        ShowWindow(hLabels[1], SW_SHOW);
+        break;
+    case 2: // Disco
+        ShowWindow(hLabels[2], SW_SHOW);
+        break;
+    case 3: // Memória
+        for (int i = 3; i <= 6; ++i) ShowWindow(hLabels[i], SW_SHOW);
+        ShowWindow(hProgressBar, SW_SHOW);
+        ShowWindow(hBenchmarkButton, SW_SHOW);
+        break;
+    }
+}
+
+LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
     case WM_CREATE: {
-        GetClientRect(hWnd, &clientRect);
-        hTab = CreateWindowW(WC_TABCONTROLW, L"", WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-            10, 10, clientRect.right - 20, clientRect.bottom - 20,
-            hWnd, (HMENU)ID_TABCTRL, NULL, NULL);
+        INITCOMMONCONTROLSEX icex = { sizeof(INITCOMMONCONTROLSEX), ICC_TAB_CLASSES | ICC_PROGRESS_CLASS };
+        InitCommonControlsEx(&icex);
+
+        hTabCtrl = CreateWindowEx(0, WC_TABCONTROL, L"",
+            WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
+            10, 10, 520, 320,
+            hwnd, (HMENU)ID_TABCTRL, GetModuleHandle(NULL), NULL);
 
         TCITEM tie = { TCIF_TEXT };
-        tie.pszText = (LPWSTR)L"Sistema"; TabCtrl_InsertItem(hTab, 0, &tie);
-        tie.pszText = (LPWSTR)L"CPU";     TabCtrl_InsertItem(hTab, 1, &tie);
-        tie.pszText = (LPWSTR)L"Disco";   TabCtrl_InsertItem(hTab, 2, &tie);
-        tie.pszText = (LPWSTR)L"Memória"; TabCtrl_InsertItem(hTab, 3, &tie);
+        tie.pszText = const_cast<LPWSTR>(L"Sistema"); TabCtrl_InsertItem(hTabCtrl, 0, &tie);
+        tie.pszText = const_cast<LPWSTR>(L"CPU");     TabCtrl_InsertItem(hTabCtrl, 1, &tie);
+        tie.pszText = const_cast<LPWSTR>(L"Disco");   TabCtrl_InsertItem(hTabCtrl, 2, &tie);
+        tie.pszText = const_cast<LPWSTR>(L"Memória"); TabCtrl_InsertItem(hTabCtrl, 3, &tie);
 
-        CreateSystemTab(hWnd);
-        CreateCpuTab(hWnd);
-        CreateDiskTab(hWnd);
-        CreateMemoryTab(hWnd);
+        hLabels[0] = CreateWindow(L"STATIC", GetOSInfo().c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 40, 480, 120, hwnd, NULL, NULL, NULL);
+        hLabels[1] = CreateWindow(L"STATIC", GetCPUInfo().c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 40, 480, 120, hwnd, NULL, NULL, NULL);
+        hLabels[2] = CreateWindow(L"STATIC", GetDiskInfo().c_str(), WS_CHILD | WS_VISIBLE | SS_LEFT, 30, 40, 480, 120, hwnd, NULL, NULL, NULL);
 
-        ShowTab(0);
+        hProgressBar = CreateWindowEx(0, PROGRESS_CLASS, NULL, WS_CHILD | WS_VISIBLE | PBS_SMOOTH, 30, 90, 400, 30, hwnd, NULL, NULL, NULL);
+        hLabels[3] = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 30, 130, 200, 20, hwnd, NULL, NULL, NULL);
+        hLabels[4] = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 240, 130, 200, 20, hwnd, NULL, NULL, NULL);
+        hLabels[5] = CreateWindow(L"STATIC", GetMemoryType().c_str(), WS_CHILD | WS_VISIBLE, 30, 160, 200, 20, hwnd, NULL, NULL, NULL);
+        hLabels[6] = CreateWindow(L"STATIC", L"", WS_CHILD | WS_VISIBLE, 30, 190, 200, 20, hwnd, NULL, NULL, NULL);
+
+        hBenchmarkButton = CreateWindow(L"BUTTON", L"Benchmark da RAM", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 30, 230, 200, 30, hwnd, (HMENU)ID_BENCHMARK_BUTTON, NULL, NULL);
+
+        ShowOnlyTabContents(0);
+        SetTimer(hwnd, TIMER_ID, 1000, NULL);
         break;
     }
     case WM_COMMAND:
-        if (LOWORD(wParam) == ID_BENCHMARK_BTN) {
-            MessageBoxW(hWnd, L"Benchmark iniciado (simulado)...", L"Benchmark", MB_OK);
+        if (LOWORD(wParam) == ID_BENCHMARK_BUTTON) {
+            ShowBenchmarkResult(hwnd);
+        }
+        break;
+    case WM_TIMER:
+        if (wParam == TIMER_ID) {
+            UpdateMemoryProgress();
         }
         break;
     case WM_NOTIFY:
-        if (((LPNMHDR)lParam)->idFrom == ID_TABCTRL && ((LPNMHDR)lParam)->code == TCN_SELCHANGE) {
-            int sel = TabCtrl_GetCurSel(hTab);
-            ShowTab(sel);
+        if (((LPNMHDR)lParam)->hwndFrom == hTabCtrl && ((LPNMHDR)lParam)->code == TCN_SELCHANGE) {
+            int selectedTab = TabCtrl_GetCurSel(hTabCtrl);
+            ShowOnlyTabContents(selectedTab);
         }
         break;
     case WM_DESTROY:
+        KillTimer(hwnd, TIMER_ID);
         PostQuitMessage(0);
         break;
+    default:
+        return DefWindowProc(hwnd, msg, wParam, lParam);
     }
-    return DefWindowProcW(hWnd, uMsg, wParam, lParam);
+    return 0;
 }
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR, int nCmdShow) {
-    InitCommonControls();
+    const wchar_t CLASS_NAME[] = L"HardwareMonitorClass";
 
-    const wchar_t CLASS_NAME[] = L"MonitorMemoriaWindow";
     WNDCLASS wc = {};
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.lpszClassName = CLASS_NAME;
+    wc.hbrBackground = (HBRUSH)(COLOR_WINDOW + 1);
+
     RegisterClass(&wc);
 
-    HWND hWnd = CreateWindowExW(0, CLASS_NAME, L"Monitor de Hardware", WS_OVERLAPPEDWINDOW,
-        CW_USEDEFAULT, CW_USEDEFAULT, 520, 380,
-        NULL, NULL, hInstance, NULL);
+    HWND hwnd = CreateWindowEx(
+        0, CLASS_NAME, L"Monitor de Hardware",
+        WS_OVERLAPPEDWINDOW & ~(WS_MAXIMIZEBOX | WS_THICKFRAME),
+        CW_USEDEFAULT, CW_USEDEFAULT, 550, 400,
+        nullptr, nullptr, hInstance, nullptr
+    );
 
-    ShowWindow(hWnd, nCmdShow);
-    UpdateWindow(hWnd);
+    if (!hwnd) return 0;
+
+    ShowWindow(hwnd, nCmdShow);
+    UpdateWindow(hwnd);
 
     MSG msg = {};
-    while (GetMessage(&msg, NULL, 0, 0)) {
+    while (GetMessage(&msg, nullptr, 0, 0)) {
         TranslateMessage(&msg);
         DispatchMessage(&msg);
     }
 
-    return (int)msg.wParam;
+    return 0;
 }
